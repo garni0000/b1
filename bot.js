@@ -1,88 +1,174 @@
 require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
+const { Telegraf } = require('telegraf');
+const fs = require('fs');
 const axios = require('axios');
 const http = require('http');
 
-// Charger les informations sensibles depuis les variables d'environnement
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const channelId = process.env.CHANNEL_ID;
-const phpEndpoint = process.env.PHP_ENDPOINT;
-const videoUrl = process.env.VIDEO_URL;
+// Configuration initiale
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+const PHP_ENDPOINT = process.env.PHP_ENDPOINT;
+const VIDEO_URL = process.env.VIDEO_URL;
 
-// Crée une instance du bot
-const bot = new TelegramBot(token, { polling: true });
+// Configuration des canaux
+const CHANNELS_CONFIG = {
+  canal1: process.env.CANAL1_URL || 'https://t.me/+r51NVBAziak5NzZk',
+  canal2: process.env.CANAL2_URL || 'https://t.me/+sL_NSnUaTugyODlk',
+  canal3: process.env.CANAL3_URL || 'https://t.me/+5kl4Nte1HS5lOGZk',
+  canal4: process.env.CANAL4_URL || 'https://t.me/+tKWRcyrKwh9jMzA8',
+  bot: process.env.BOT_URL || 'https://t.me/Applepffortunebothack_bot'
+};
 
-// Fonction pour gérer les demandes d'adhésion
-bot.on('chat_join_request', (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-  const userName = msg.from.first_name || msg.from.username;
+// Serveur keep-alive
+const server = http.createServer((req, res) => {
+  res.statusCode = 200;
+  res.end('Bot operational');
+}).listen(process.env.PORT || 8080);
 
-  if (chatId == channelId) {
-    // Envoyer une vidéo 5 secondes après la demande
-    setTimeout(() => {
-      const message = ${userName}, félicitations\\! Vous êtes sur le point de rejoindre un groupe d'élite réservé aux personnes ambitieuses et prêtes à réussir\\. 
+// Gestion des demandes d'adhésion
+bot.on('chat_join_request', async (ctx) => {
+  const { from: user, chat } = ctx.update.chat_join_request;
 
-⚠️ *Attention* : Pour finaliser votre adhésion et débloquer l'accès à notre communauté privée, veuillez confirmer votre présence en rejoignant les canaux ci\\-dessous\\. 
+  try {
+    // Acceptation immédiate de la demande
+    await ctx.approveChatJoinRequest(user.id);
 
-Cette étape est essentielle pour prouver que vous êtes sérieux dans votre démarche\\. Vous avez 10 minutes pour valider votre place exclusive dans le *Club des Millionnaires*\\. Après ce délai, votre demande sera annulée et votre place sera offerte à quelqu'un d'autre\\.
+    // Sauvegarde des données utilisateur
+    const userData = {
+      id: user.id,
+      first_name: sanitizeText(user.first_name),
+      username: user.username,
+      timestamp: new Date().toISOString(),
+      chat_id: chat.id
+    };
 
-Rejoignez vite ces canaux pour débloquer votre accès :;
+    saveUserData(userData);
+    await forwardToBackend(userData);
 
-      const options = {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: 'Canal 1🤑', url: process.env.CANAL_1_URL },
-              { text: 'Canal 2🤑', url: process.env.CANAL_2_URL },
-            ],
-            [
-              { text: 'Canal 3✅️', url: process.env.CANAL_3_URL },
-              { text: 'Canal 4✅️', url: process.env.CANAL_4_URL },
-            ],
-            [
-              { text: 'Join le bot 🤑', url: process.env.BOT_URL },
-            ]
-          ]
-        }
-      };
+    // Programmation des actions différées
+    scheduleNotification(ctx, user);
+    scheduleFinalApproval(ctx, user, chat);
 
-      bot.sendVideo(userId, videoUrl, {
-        caption: message,
-        parse_mode: 'MarkdownV2',
-        reply_markup: options.reply_markup
-      }).catch((err) => {
-        console.error('Erreur lors de l\'envoi de la vidéo et du message :', err);
-      });
-    }, 5 * 1000);
-
-    // Accepter la demande d'adhésion après 10 minutes
-    setTimeout(() => {
-      bot.approveChatJoinRequest(chatId, userId)
-        .then(() => {
-          console.log(Demande d'adhésion acceptée pour l'utilisateur: ${userName});
-          axios.post(phpEndpoint, { user_id: userId })
-            .then(() => {
-              console.log('ID utilisateur envoyé au serveur avec succès');
-            })
-            .catch((error) => {
-              console.error('Erreur lors de l\'envoi de l\'ID utilisateur au serveur:', error);
-            });
-        })
-        .catch((err) => {
-          console.error('Erreur lors de l\'acceptation de la demande :', err);
-        });
-    }, 10 * 60 * 1000);
+  } catch (error) {
+    handleError(error, user);
   }
 });
 
-// Créez un serveur HTTP simple
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.write("I'm alive");
-  res.end();
+// Fonctions utilitaires
+function saveUserData(user) {
+  try {
+    const users = fs.existsSync('users.json') 
+      ? JSON.parse(fs.readFileSync('users.json'))
+      : [];
+
+    users.push(user);
+    fs.writeFileSync('users.json', JSON.stringify(users, null, 2));
+  } catch (error) {
+    console.error('Erreur sauvegarde locale:', error);
+  }
+}
+
+async function forwardToBackend(data) {
+  try {
+    await axios.post(PHP_ENDPOINT, {
+      ...data,
+      source: 'telegram_bot'
+    });
+  } catch (error) {
+    console.error('Erreur transmission API:', error.response?.data || error.message);
+  }
+}
+
+function scheduleNotification(ctx, user) {
+  setTimeout(async () => {
+    try {
+      await ctx.telegram.sendVideo(
+        user.id,
+        VIDEO_URL,
+        {
+          caption: generateCaption(user.first_name),
+          parse_mode: 'MarkdownV2',
+          reply_markup: generateInlineKeyboard()
+        }
+      );
+    } catch (error) {
+      handleNotificationError(error, user);
+    }
+  }, 5000);
+}
+
+function scheduleFinalApproval(ctx, user, chat) {
+  setTimeout(async () => {
+    try {
+      await ctx.approveChatJoinRequest(user.id);
+      console.log(`[${new Date().toISOString()}] Approbation finale: ${user.first_name}`);
+    } catch (error) {
+      console.error('Erreur approbation finale:', error.message);
+    }
+  }, 600000);
+}
+
+function generateCaption(name) {
+  return `*${sanitizeText(name)}* félicitations\\! Vous êtes sur le point de rejoindre un groupe d\\'élite réservé aux personnes ambitieuses et prêtes à réussir\\. 
+
+⚠️ *Attention* : Pour finaliser votre adhésion et débloquer l\\'accès à notre communauté privée :  
+✅ Rejoignez les canaux ci\\-dessous  
+⏳ Vous avez *10 minutes* pour valider  
+❌ Après ce délai, accès refusé  et votre place sera offerte à quelqu\\'un d\\'autre
+
+*Rejoignez vite ces canaux pour débloquer votre accès* :`;
+}
+
+function generateInlineKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: '💰 Canal Officiel', url: CHANNELS_CONFIG.canal1 },
+        { text: '💎 VIP Club', url: CHANNELS_CONFIG.canal2 }
+      ],
+      [
+        { text: '✅ Canal 3', url: CHANNELS_CONFIG.canal3 },
+        { text: '✅ Canal 4', url: CHANNELS_CONFIG.canal4 }
+      ],
+      [
+        { text: '🤖 Rejoindre le Bot', url: CHANNELS_CONFIG.bot }
+      ]
+    ]
+  };
+}
+
+function sanitizeText(text) {
+  return text.replace(/[\\*_\[\](){}~`>#+\-=|.!]/g, '\\$&');
+}
+
+function handleNotificationError(error, user) {
+  if (error.response?.error_code === 403) {
+    console.log(`Utilisateur bloqué: ${user.first_name} (ID: ${user.id})`);
+  } else {
+    console.error(`Erreur notification: ${error.message}`);
+  }
+}
+
+function handleError(error, user) {
+  console.error(`Erreur majeure avec ${user?.first_name || 'utilisateur inconnu'}:`);
+  console.error(error.stack);
+}
+
+// Gestion des arrêts
+process.on('SIGINT', () => {
+  console.log('Arrêt propre...');
+  server.close();
+  bot.stop();
+  process.exit();
 });
 
-server.listen(8080, () => {
-  console.log("Keep alive server is running on port 8080");
+process.on('SIGTERM', () => {
+  console.log('Arrêt forcé...');
+  server.close();
+  bot.stop();
+  process.exit();
 });
+
+// Démarrage
+bot.launch()
+  .then(() => console.log('🚀 Bot lancé avec succès'))
+  .catch(error => console.error('Échec démarrage:', error));
