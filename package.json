@@ -1,19 +1,29 @@
 {
-  "name": "telegram-bot",
+  "name": "telegram-auto-approve-bot",
   "version": "1.0.0",
-  "description": "Un bot Telegram pour gérer les demandes d'adhésion et inviter les utilisateurs à rejoindre des canaux.",
+  "description": "Bot Telegram pour l'approbation automatique des demandes d'adhésion",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "telegram",
+    "bot",
+    "auto-approve"
+  ],
+  "author": "Votre Nom",
+  "license": "ISC",
   "dependencies": {
-    "dotenv": "^16.0.3",
-    "node-telegram-bot-api": "^0.61.0",
-    "axios": "^1.6.0"
+    "telegraf": "^4.16.3",
+    "axios": "^1.8.2",
+    "dotenv": "^16.4.1"
   },
   "engines": {
     "node": ">=14.0.0"
   },
-  "author": "Ton Nom",
-  "license": "MIT"
+  "repository": {
+    "type": "git",
+    "url": "URL_DE_VOTRE_REPO"
+  }
 }
